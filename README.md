@@ -159,6 +159,7 @@ new ArgoCD Application.
 | Supply chain | SHA-pinned actions, digest-pinned base images, pinned Python deps, Dependabot, immutable ECR tags, and cosign signatures with SBOM and provenance |
 | Vulnerabilities | Trivy image gate + Security tab, `trivy config` on the rendered chart, ECR scan-on-push, Dependabot alerts |
 | Runtime hardening | Non-root UID 10001, read-only root FS, all Linux capabilities dropped, seccomp `RuntimeDefault`, no ServiceAccount token mounted, CPU/memory requests |
+| Minimal image | Multi-stage build. The runtime image gets Debian security updates at build time and has **no package manager** (pip and its vendored libraries are removed), so there's less to exploit and less for Trivy to flag. |
 | Repo hygiene | Branch protection (PR + `ci-result` + `chart-result`), CODEOWNERS, secret scanning with push protection, and pre-commit `detect-private-key` |
 
 ---
