@@ -1,0 +1,9 @@
+# chart-testing (ct) config used by helm-chart-cicd.yml
+chart-dirs:
+  - chart
+target-branch: main
+remote: origin
+validate-chart-schema: true
+validate-yaml: true
+validate-maintainers: false   # maintainers are documented, not verified against GitHub users
+check-version-increment: false # CI computes the version on release (see chart/generic/Chart.yaml)

@@ -1,0 +1,15 @@
+apiVersion: v2
+name: generic
+description: One uniform chart for every Sqope AI microservice (Deployment, Service, HPA, PDB, Ingress, ServiceMonitor).
+type: application
+# Versioning: MAJOR.MINOR are bumped by hand here (breaking change / new feature).
+# The PATCH digit is NOT maintained by hand: on every release, helm-chart-cicd.yml publishes
+# MAJOR.MINOR.<latest released patch + 1> to ECR and tags git with generic-chart-v<version>.
+version: 1.0.0
+kubeVersion: ">=1.29.0-0"
+home: https://github.com/gologolo24/SqopeAI
+sources:
+  - https://github.com/gologolo24/SqopeAI/tree/main/chart/generic
+maintainers:
+  - name: gologolo24
+    url: https://github.com/gologolo24

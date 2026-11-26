@@ -1,0 +1,56 @@
+name: Changed services
+description: >
+  Returns a JSON list of services under services/ touched by this PR or push.
+  Every folder in services/ is a service, so adding one needs no workflow change.
+  If shared CI/lint config changed, all services are returned.
+
+outputs:
+  services:
+    description: JSON array, e.g. ["order-service"]
+    value: ${{ steps.list.outputs.services }}
+
+runs:
+  using: composite
+  steps:
+    - name: Build path filters from services/*
+      id: gen
+      shell: bash
+      run: |
+        all=$(find services -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort | jq -Rsc 'split("\n") | map(select(length > 0))')
+        echo "all=$all" >> "$GITHUB_OUTPUT"
+        {
+          echo 'filters<<EOF'
+          echo 'shared:'
+          echo '  - "ruff.toml"'
+          echo '  - ".github/workflows/pr.yml"'
+          echo '  - ".github/workflows/main.yml"'
+          echo '  - ".github/workflows/_service-ci.yml"'
+          echo '  - ".github/actions/changed-services/**"'
+          for svc in $(jq -r '.[]' <<< "$all"); do
+            echo "$svc:"
+            echo "  - \"services/$svc/**\""
+          done
+          echo 'EOF'
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Detect changes
+      id: filter
+      uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+      with:
+        filters: ${{ steps.gen.outputs.filters }}
+
+    - name: Resolve service list
+      id: list
+      shell: bash
+      env:
+        ALL: ${{ steps.gen.outputs.all }}
+        CHANGES: ${{ steps.filter.outputs.changes }}
+        SHARED: ${{ steps.filter.outputs.shared }}
+      run: |
+        if [[ "$SHARED" == "true" ]]; then
+          services="$ALL"
+        else
+          services=$(jq -c '[.[] | select(. != "shared")]' <<< "$CHANGES")
+        fi
+        echo "services=$services" >> "$GITHUB_OUTPUT"
+        echo "### Services in scope: \`$services\`" >> "$GITHUB_STEP_SUMMARY"

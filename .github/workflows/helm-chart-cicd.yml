@@ -1,0 +1,220 @@
+# The shared chart (chart/generic) has its own lifecycle, separate from the services:
+#   PR   -> validate (ct lint, render with every real GitOps values file, kubeconform, trivy config)
+#   main -> validate, then release: version = MAJOR.MINOR.(last patch + 1), push to ECR as OCI,
+#           sign with cosign, tag git. CI never commits back to main.
+name: helm-chart-cicd
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CHART_DIR: chart/generic
+  HELM_VERSION: v3.22.1
+  KUBERNETES_VERSION: 1.34.1
+  KUBECONFORM_VERSION: v0.8.0
+  KUBECONFORM_SHA256: 9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883
+  GITOPS_REPO: gologolo24/sqope-ai-gitops-dev
+
+jobs:
+  changes:
+    name: Detect chart changes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      chart: ${{ steps.filter.outputs.chart }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: filter
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            chart:
+              - "chart/**"
+              - "ct.yaml"
+              - ".github/workflows/helm-chart-cicd.yml"
+              - ".github/scripts/chart-next-version.sh"
+
+  validate:
+    name: Validate chart
+    needs: changes
+    if: needs.changes.outputs.chart == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # ct and the version script need history and tags
+          persist-credentials: false
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14" # chart-testing uses yamllint/yamale
+
+      - uses: helm/chart-testing-action@720270857a28afd41e2426521a7801db09e9b510 # v2.9.0
+
+      - name: ct lint (yamllint + helm lint --strict with every ci/*-values.yaml)
+        run: ct lint --config ct.yaml --charts "$CHART_DIR"
+
+      - name: Build chart dependencies
+        run: helm dependency build "$CHART_DIR"
+
+      - name: Checkout GitOps repo (real environment values)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ env.GITOPS_REPO }}
+          path: gitops
+          persist-credentials: false
+
+      - name: Render with CI values and every service's dev values
+        run: |
+          mkdir -p rendered
+          for f in "$CHART_DIR"/ci/*-values.yaml gitops/apps/*/values.yaml; do
+            name=$(echo "$f" | tr '/' '_')
+            release=$(basename "$(dirname "$f")")
+            [[ "$release" == "ci" ]] && release=ci-service
+            echo "rendering $f"
+            helm template "$release" "$CHART_DIR" -f "$f" --namespace "$release" > "rendered/$name"
+          done
+
+      - name: Install kubeconform (checksum verified)
+        env:
+          BASE_URL: https://github.com/yannh/kubeconform/releases/download
+        run: |
+          curl -sSLo kubeconform.tgz "${BASE_URL}/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          echo "${KUBECONFORM_SHA256}  kubeconform.tgz" | sha256sum -c -
+          tar xzf kubeconform.tgz kubeconform && sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate manifests against the Kubernetes API schema
+        env:
+          # CRD schemas (e.g. ServiceMonitor) come from the community CRDs catalog
+          CRD_CATALOG: https://raw.githubusercontent.com/datreeio/CRDs-catalog/main
+        run: |
+          kubeconform -strict -summary -output pretty \
+            -kubernetes-version "$KUBERNETES_VERSION" \
+            -schema-location default \
+            -schema-location "${CRD_CATALOG}/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json" \
+            rendered/
+
+      - name: Misconfiguration scan (trivy config)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: rendered
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+
+      - name: Show the version this change would release
+        run: |
+          next=$(.github/scripts/chart-next-version.sh "$CHART_DIR")
+          echo "::notice title=Chart version::merging this will release generic ${next}"
+          echo "Next chart version: \`${next}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  aws-not-configured:
+    name: Release disabled (AWS not configured)
+    needs: [changes, validate]
+    if: github.event_name == 'push' && needs.changes.outputs.chart == 'true' && vars.AWS_ROLE_ARN == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: >
+          echo "::notice title=Chart release skipped::Repository variable AWS_ROLE_ARN is not set,
+          so the chart was validated but not pushed to ECR. Set AWS_ROLE_ARN and AWS_REGION
+          (outputs of the sqope-ai-infra repo) to enable it."
+
+  release:
+    name: Release chart to ECR
+    needs: [changes, validate]
+    if: github.event_name == 'push' && needs.changes.outputs.chart == 'true' && vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    concurrency:
+      # two merges must never compute the same version
+      group: helm-chart-release
+      cancel-in-progress: false
+    permissions:
+      contents: write # push the release git tag
+      id-token: write # GitHub OIDC -> AWS role, and keyless cosign signing
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: azure/setup-helm@2f5e7bc67f1f9972ab16657bb795f36d8f04de0e # v5.1.0
+        with:
+          version: ${{ env.HELM_VERSION }}
+
+      - name: Compute version (last patch + 1)
+        id: version
+        run: echo "next=$(.github/scripts/chart-next-version.sh "$CHART_DIR")" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@45666896f5d8e0f10ae255413f3a4cdd03bdc8f5 # v6.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-chart-${{ github.run_id }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      - name: Package and push chart (OCI)
+        id: push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          aws ecr get-login-password | helm registry login --username AWS --password-stdin "$REGISTRY"
+          helm dependency build "$CHART_DIR"
+          helm package "$CHART_DIR" --version "$VERSION" --destination dist
+          helm push "dist/generic-${VERSION}.tgz" "oci://${REGISTRY}/chart" 2>&1 | tee push.log
+          digest=$(grep -oE 'sha256:[a-f0-9]{64}' push.log | head -n1)
+          echo "ref=${REGISTRY}/chart/generic@${digest}" >> "$GITHUB_OUTPUT"
+          echo "Released \`oci://${REGISTRY}/chart/generic:${VERSION}\` (\`${digest}\`)" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+
+      - name: Sign chart (keyless, Sigstore)
+        env:
+          REF: ${{ steps.push.outputs.ref }}
+        run: cosign sign --yes "$REF"
+
+      - name: Tag the release in git (only after a successful push)
+        env:
+          VERSION: ${{ steps.version.outputs.next }}
+        run: |
+          git tag "generic-chart-v${VERSION}" "$GITHUB_SHA"
+          git push origin "generic-chart-v${VERSION}"
+
+  chart-result:
+    name: chart-result
+    needs: [changes, validate, release]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Fail if any job failed
+        env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [[ "$FAILED" == "true" ]]; then echo "::error::chart pipeline failed"; exit 1; fi
+          echo "chart checks passed (or chart untouched)"

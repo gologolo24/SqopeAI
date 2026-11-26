@@ -1,0 +1,62 @@
+# Pull request into main: validate only the services the PR touched. Nothing is published.
+name: services-pr
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # a new push to the same PR cancels the outdated run
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # paths-filter lists PR files through the API
+    outputs:
+      services: ${{ steps.changed.outputs.services }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: changed
+        uses: ./.github/actions/changed-services
+
+  service-ci:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    strategy:
+      fail-fast: false # report every broken service, not just the first
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/_service-ci.yml
+    with:
+      service: ${{ matrix.service }}
+
+  # Single required status check for branch protection. The matrix is dynamic (its job names
+  # change per PR), so it cannot be required directly; this gate always runs and aggregates it.
+  ci-result:
+    name: ci-result
+    needs: [changes, service-ci]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Fail if any required job failed
+        env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [[ "$FAILED" == "true" ]]; then echo "::error::one or more service checks failed"; exit 1; fi
+          echo "all touched services passed (or none were touched)"

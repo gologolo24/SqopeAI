@@ -1,0 +1,21 @@
+# Shared lint/format rules for every service (ruff discovers this file from any subfolder).
+target-version = "py314"
+line-length = 100
+
+[lint]
+select = [
+  "E", "W",   # pycodestyle
+  "F",        # pyflakes
+  "I",        # import sorting
+  "B",        # bugbear: likely bugs
+  "UP",       # pyupgrade: modern syntax
+  "S",        # bandit: security smells
+  "SIM",      # simplifications
+  "N",        # pep8 naming
+]
+
+[lint.per-file-ignores]
+"**/tests/**" = ["S101"]  # assert is how pytest works
+
+[lint.isort]
+known-first-party = ["app"]

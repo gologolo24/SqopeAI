@@ -1,0 +1,110 @@
+# Defaults shared by every service. Per-service, per-environment overrides live in the GitOps
+# repo (sqope-ai-gitops-dev/apps/<service>/values.yaml). Validated by values.schema.json.
+
+nameOverride: ""
+
+replicaCount: 2
+
+image:
+  repository: ""        # required, e.g. <account>.dkr.ecr.<region>.amazonaws.com/sqope-ai/user-service
+  tag: ""               # required, the full git commit SHA (set by CI in the GitOps repo)
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  annotations: {}       # e.g. eks.amazonaws.com/role-arn for IRSA / Pod Identity
+  automountToken: false  # services don't call the Kubernetes API
+
+podAnnotations: {}
+podLabels: {}
+
+containerPort: 8080
+
+service:
+  type: ClusterIP
+  port: 80
+
+# Plain, non-sensitive config as KEY: value.
+env: {}
+# Names of existing Secrets to load as env vars. Secrets are never put in values files:
+# they are synced from AWS Secrets Manager by External Secrets Operator.
+envFromSecrets: []
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 256Mi       # no CPU limit on purpose: avoids CFS throttling, requests guarantee share
+
+probes:
+  startup:
+    path: /healthz
+    periodSeconds: 2
+    failureThreshold: 30
+  liveness:
+    path: /healthz
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    path: /readyz
+    periodSeconds: 5
+    failureThreshold: 3
+
+metrics:
+  path: /metrics
+  serviceMonitor:
+    enabled: false      # enable once kube-prometheus-stack (Prometheus Operator) is installed
+    interval: 30s
+
+autoscaling:
+  enabled: false
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+
+podDisruptionBudget:
+  enabled: true
+  maxUnavailable: 1
+
+ingress:
+  enabled: false
+  className: alb
+  annotations: {}
+  host: ""
+  path: /
+  tls: []
+
+# Rolling update that never drops below the desired replica count.
+strategy:
+  maxSurge: 25%
+  maxUnavailable: 0
+
+# Spread replicas across availability zones and nodes so one AZ/node failure isn't an outage.
+topologySpread:
+  enabled: true
+
+terminationGracePeriodSeconds: 30
+# Sleep before SIGTERM so the load balancer stops sending traffic before the pod exits.
+preStopSleepSeconds: 5
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  privileged: false
+  capabilities:
+    drop: ["ALL"]
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

@@ -1,0 +1,4 @@
+{{ include "generic.fullname" . }} deployed with image {{ include "generic.image" . }}
+
+In-cluster URL: http://{{ include "generic.fullname" . }}.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.service.port }}
+Health:         kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "generic.fullname" . }} 8080:{{ .Values.service.port }} && curl localhost:8080/readyz

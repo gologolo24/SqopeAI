@@ -1,0 +1,196 @@
+# Push to main: re-validate the touched services, push their images to ECR tagged with the
+# commit SHA, sign them, then bump the image tag in the GitOps repo so ArgoCD deploys to dev.
+name: services-main
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  # never cancel a release mid-way; queue runs instead
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  changes:
+    name: Detect changed services
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      services: ${{ steps.changed.outputs.services }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - id: changed
+        uses: ./.github/actions/changed-services
+
+  service-ci:
+    name: CI
+    needs: changes
+    if: needs.changes.outputs.services != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    permissions:
+      contents: read
+      security-events: write
+    uses: ./.github/workflows/_service-ci.yml
+    with:
+      service: ${{ matrix.service }}
+      save-image: true
+
+  aws-not-configured:
+    name: Publish disabled (AWS not configured)
+    needs: changes
+    if: needs.changes.outputs.services != '[]' && vars.AWS_ROLE_ARN == ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - run: >
+          echo "::notice title=Publish skipped::Repository variable AWS_ROLE_ARN is not set, so images
+          were built, tested and scanned but not pushed to ECR, and the GitOps repo was not updated.
+          Set AWS_ROLE_ARN and AWS_REGION (outputs of the sqope-ai-infra repo) to enable it."
+
+  publish:
+    name: Publish ${{ matrix.service }}
+    needs: [changes, service-ci]
+    if: vars.AWS_ROLE_ARN != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        service: ${{ fromJSON(needs.changes.outputs.services) }}
+    permissions:
+      contents: read
+      id-token: write     # GitHub OIDC -> AWS role, and keyless cosign signing
+      attestations: write # build provenance attestation
+    env:
+      SERVICE: ${{ matrix.service }}
+      LOCAL_IMAGE: ${{ matrix.service }}:${{ github.sha }}
+    steps:
+      - name: Download scanned image
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: image-${{ matrix.service }}
+          path: ${{ runner.temp }}
+
+      - name: Load image
+        run: gunzip -c "$RUNNER_TEMP/image.tar.gz" | docker load
+
+      - name: Configure AWS credentials (OIDC, no stored keys)
+        uses: aws-actions/configure-aws-credentials@45666896f5d8e0f10ae255413f3a4cdd03bdc8f5 # v6.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-session-name: gha-${{ matrix.service }}-${{ github.run_id }}
+
+      - name: Login to Amazon ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@7290e214a610b32bc0eef81748948b6d466a8783 # v2.2.0
+
+      - name: Push image tagged with the commit SHA
+        id: push
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+        run: |
+          repo="$REGISTRY/sqope-ai/$SERVICE"
+          docker tag "$LOCAL_IMAGE" "$repo:$GITHUB_SHA"
+          docker push "$repo:$GITHUB_SHA"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$repo:$GITHUB_SHA" | cut -d@ -f2)
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Pushed \`$repo:$GITHUB_SHA\` (\`$digest\`)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: cyclonedx
+          output: sbom.cdx.json
+
+      - uses: sigstore/cosign-installer@881c63bd87e38389154debd8331404ce7ca8a3ab # v4.1.4
+
+      - name: Sign image and attach SBOM (keyless, Sigstore)
+        env:
+          REF: ${{ steps.push.outputs.repo }}@${{ steps.push.outputs.digest }}
+        run: |
+          cosign sign --yes "$REF"
+          cosign attest --yes --type cyclonedx --predicate sbom.cdx.json "$REF"
+
+      - name: Build provenance attestation
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.push.outputs.repo }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+  update-gitops:
+    name: Deploy to dev (GitOps)
+    needs: [changes, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment:
+      name: dev
+      url: https://github.com/gologolo24/sqope-ai-gitops-dev/commits/main
+    concurrency:
+      # one writer at a time to the GitOps repo; queue, never cancel
+      group: gitops-dev
+      cancel-in-progress: false
+    steps:
+      - name: Checkout GitOps repo
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: gologolo24/sqope-ai-gitops-dev
+          ref: main
+          ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
+
+      - name: Bump image tags to this commit
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+          SHA: ${{ github.sha }}
+        run: |
+          for svc in $(jq -r '.[]' <<< "$SERVICES"); do
+            file="apps/$svc/values.yaml"
+            if [[ ! -f "$file" ]]; then echo "::error::$file missing in the GitOps repo"; exit 1; fi
+            yq -i '.image.tag = strenv(SHA)' "$file"
+            echo "- \`$svc\` -> \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+      - name: Commit and push
+        env:
+          SERVICES: ${{ needs.changes.outputs.services }}
+          SHA: ${{ github.sha }}
+        run: |
+          if git diff --quiet; then echo "GitOps repo already at $SHA"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "deploy($(jq -r 'join(",")' <<< "$SERVICES")): ${SHA::7}" \
+            -m "Source: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$SHA" \
+            -m "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          for attempt in 1 2 3 4 5; do
+            git push origin HEAD:main && exit 0
+            echo "push rejected (attempt $attempt), rebasing on latest main"
+            sleep $((attempt * 2))
+            git pull --rebase origin main
+          done
+          echo "::error::could not push to the GitOps repo"; exit 1
+
+  ci-result:
+    name: ci-result
+    needs: [changes, service-ci, publish, update-gitops]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Fail if any job failed
+        env:
+          FAILED: ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [[ "$FAILED" == "true" ]]; then echo "::error::release pipeline failed"; exit 1; fi
+          echo "pipeline finished"

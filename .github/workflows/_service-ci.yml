@@ -1,0 +1,132 @@
+# Reusable: lint -> test -> build -> smoke test -> scan for ONE service.
+# Cheapest checks run first so a broken PR fails in seconds, not minutes.
+# This job runs untrusted PR code, so it never gets cloud credentials (no id-token).
+name: service-ci
+
+on:
+  workflow_call:
+    inputs:
+      service:
+        description: Folder name under services/
+        required: true
+        type: string
+      save-image:
+        description: Upload the scanned image as an artifact so the publish job pushes exactly it
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    name: ${{ inputs.service }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write # upload Trivy SARIF to the Security tab
+    defaults:
+      run:
+        working-directory: services/${{ inputs.service }}
+    env:
+      LOCAL_IMAGE: ${{ inputs.service }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: services/${{ inputs.service }}/requirements*.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      # 1. Lint
+      - name: Lint (ruff)
+        run: |
+          ruff check --output-format=github .
+          ruff format --check .
+
+      - name: Lint Dockerfile (hadolint)
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: services/${{ inputs.service }}/Dockerfile
+
+      # 2. Unit tests (coverage gate is in pyproject.toml)
+      - name: Unit tests (pytest)
+        run: pytest --junitxml=pytest-report.xml
+
+      # 3. Build
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: services/${{ inputs.service }}
+          load: true
+          push: false
+          provenance: false
+          tags: ${{ env.LOCAL_IMAGE }}
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha,scope=${{ inputs.service }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.service }}
+
+      # 4. Smoke test the real image the way Kubernetes will run it (read-only FS, non-root)
+      - name: Smoke test container
+        run: |
+          docker run -d --name smoke -p 8080:8080 --read-only --tmpfs /tmp "$LOCAL_IMAGE"
+          for _ in $(seq 1 30); do
+            if curl -fsS http://localhost:8080/healthz && curl -fsS http://localhost:8080/readyz; then
+              echo; echo "container is healthy"; docker rm -f smoke >/dev/null; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::container did not become healthy"; docker logs smoke; exit 1
+
+      # 5. Vulnerability scan: report everything to the Security tab, then gate on fixable HIGH/CRITICAL
+      - name: Trivy scan (SARIF report)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: sarif
+          output: trivy-${{ inputs.service }}.sarif
+          exit-code: "0"
+          trivyignores: .trivyignore
+
+      - name: Upload SARIF to GitHub Security
+        # fork PRs get a read-only token, so skip there instead of failing
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: github/codeql-action/upload-sarif@915412ff23e8b7659517e607487dbeae018f2934 # v4.39.5
+        with:
+          sarif_file: trivy-${{ inputs.service }}.sarif
+          category: trivy-${{ inputs.service }}
+
+      - name: Trivy gate (fail on fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.LOCAL_IMAGE }}
+          format: table
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+          skip-setup-trivy: true
+
+      # Hand the exact scanned image to the publish job (build once, push what was tested)
+      - name: Export image
+        if: inputs.save-image
+        run: docker save "$LOCAL_IMAGE" | gzip > "$RUNNER_TEMP/image.tar.gz"
+
+      - name: Upload image artifact
+        if: inputs.save-image
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: image-${{ inputs.service }}
+          path: ${{ runner.temp }}/image.tar.gz
+          retention-days: 1
+          compression-level: 0

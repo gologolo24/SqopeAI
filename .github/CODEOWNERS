@@ -1,0 +1,6 @@
+# In a real org these would be teams, e.g. @sqope-ai/platform and @sqope-ai/backend.
+# With "require review from code owners" on main, pipeline and chart changes need platform approval.
+*                 @gologolo24
+/services/        @gologolo24
+/chart/           @gologolo24
+/.github/         @gologolo24

@@ -1,0 +1,24 @@
+# Used by `ct lint` and the chart workflow: every optional feature switched on.
+image:
+  repository: 123456789012.dkr.ecr.eu-central-1.amazonaws.com/sqope-ai/ci-service
+  tag: 0123456789abcdef0123456789abcdef01234567
+env:
+  LOG_LEVEL: DEBUG
+  FEATURE_FLAG: true
+envFromSecrets:
+  - ci-service-secrets
+serviceAccount:
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/ci-service
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+ingress:
+  enabled: true
+  host: ci.dev.sqope.ai
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+metrics:
+  serviceMonitor:
+    enabled: true

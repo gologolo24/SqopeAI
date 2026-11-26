@@ -1,0 +1,11 @@
+tests/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+.coverage
+*.xml
+.venv/
+requirements-dev.txt
+pyproject.toml
+Dockerfile
+.dockerignore

@@ -1,0 +1,5 @@
+# Accepted vulnerability risks. Every entry needs a reason, an owner and an expiry date,
+# after which Trivy fails the build again and the risk must be re-reviewed. Example:
+#
+# CVE-2026-00000 exp:2026-12-31
+#   reason: not reachable (feature unused), fix not released upstream yet. owner: platform

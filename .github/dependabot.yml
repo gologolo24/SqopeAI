@@ -1,0 +1,24 @@
+# Keeps pinned versions (pip, base image digests, action SHAs) current with weekly PRs that go
+# through the same CI. Pinning without automated updates would freeze known vulnerabilities in.
+version: 2
+updates:
+  - package-ecosystem: pip
+    directories: ["/services/*"]
+    schedule:
+      interval: weekly
+    groups:
+      python-deps:
+        patterns: ["*"]
+
+  - package-ecosystem: docker
+    directories: ["/services/*"]
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
