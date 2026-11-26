@@ -4,14 +4,17 @@ Sqope AI DevOps assignment. This repository holds the **application code**, the 
 pipelines** and the **shared Helm chart**. Deployment state lives in a separate GitOps repo that
 ArgoCD watches.
 
-**Assignment answers:** [Question 1: CI/CD](README-CICD.md), covering every pipeline, its stages,
-diagrams, and how ArgoCD handles the CD.
+**Assignment answers:**
+- [Question 1: CI/CD](README-CICD.md): every pipeline, its stages, diagrams, and how ArgoCD
+  handles the CD
+- [Question 2: Infrastructure as Code](https://github.com/gologolo24/sqope-ai-infra): Terraform
+  modules, Terragrunt environments, TeamCity, and the architecture diagram
 
 | Repository | Holds | Changed by |
 |---|---|---|
 | **SqopeAI** (this repo) | 3 microservices, GitHub Actions pipelines, the `generic` Helm chart | Developers (PRs) |
 | [**sqope-ai-gitops-dev**](https://github.com/gologolo24/sqope-ai-gitops-dev) | *Values only*: what runs in **dev** (image tag, replicas, resources), plus the ArgoCD ApplicationSet | CI (image tags) + platform (PRs) |
-| **sqope-ai-infra** *(next step)* | Terraform: VPC, EKS, ECR, IAM/OIDC, ArgoCD, External Secrets | Platform team |
+| [**sqope-ai-infra**](https://github.com/gologolo24/sqope-ai-infra) | Terraform modules + Terragrunt: VPC, EKS, RDS per environment (dev / staging / prod), deployed by TeamCity | Platform team |
 
 **Why three repos?** Code, desired state and infrastructure change at different speeds, for
 different reasons, by different people:
@@ -198,7 +201,8 @@ helm template order-service chart/generic \
 Today the workflows **build, test, scan and validate everything**. Pushing to ECR and the GitOps
 bump are skipped (with a notice) because no AWS account is connected yet. To turn them on:
 
-1. Apply the **sqope-ai-infra** Terraform (next step). It must create:
+1. Add an `ecr` component to [sqope-ai-infra](https://github.com/gologolo24/sqope-ai-infra) (listed there
+   under next steps) and apply it. It must create:
    - ECR repositories `sqope-ai/user-service`, `sqope-ai/order-service`,
      `sqope-ai/notification-service` and `chart/generic`. Each one needs:
      - tag immutability `IMMUTABLE_WITH_EXCLUSION`, excluding `sha256-*` (cosign signature and
@@ -239,8 +243,9 @@ assignment.
 
 ## Limitations and next steps
 
-- **No cluster yet.** The infra repo (VPC, EKS, ECR, OIDC, ArgoCD, External Secrets) and the
-  architecture diagram are the next step.
+- **Not applied to AWS yet.** [sqope-ai-infra](https://github.com/gologolo24/sqope-ai-infra) defines
+  the VPC, EKS and RDS for every environment. The ECR + OIDC component and the ArgoCD install are
+  its listed next steps.
 - **Monitoring.**
   - Already in place: services expose RED metrics on `/metrics` and write JSON logs to stdout, and
     the chart ships a `ServiceMonitor` (off until Prometheus Operator is installed).
