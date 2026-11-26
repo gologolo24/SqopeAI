@@ -31,7 +31,8 @@
 8. [What runs when](#8-what-runs-when)
 9. [When something fails](#9-when-something-fails)
 10. [Security built into the pipeline](#10-security-built-into-the-pipeline)
-11. [Proof it works: real runs](#11-proof-it-works-real-runs)
+11. [Why ArgoCD + GitOps is the best practice for CD](#11-why-argocd--gitops-is-the-best-practice-for-cd)
+12. [Proof it works: real runs](#12-proof-it-works-real-runs)
 
 ---
 
@@ -69,6 +70,9 @@ flowchart LR
   when, and why (each commit links back to the source commit and the CI run).
 - **Rollback = `git revert`.** No special tooling.
 - **Self-healing.** If someone changes the cluster by hand, ArgoCD reverts it to what git says.
+
+Section 11 explains in full why this is the industry best practice: the GitOps principles,
+push-based vs pull-based deployment, and why ArgoCD.
 
 ---
 
@@ -372,7 +376,89 @@ Secrets management is covered in question 4.
 
 ---
 
-## 11. Proof it works: real runs
+## 11. Why ArgoCD + GitOps is the best practice for CD
+
+### GitOps in one sentence
+
+> **Git is the single source of truth for what runs in an environment, and an agent inside the
+> cluster continuously makes reality match git.**
+
+Deploying stops being *"run a script against the cluster"* and becomes *"change a file in git"*.
+Everything teams already do with code (review, history, revert, blame, branch protection) now
+applies to deployments too.
+
+### The four GitOps principles, and how this project applies each one
+
+GitOps is defined by four principles, published by
+[OpenGitOps](https://opengitops.dev/), a CNCF working group. This project follows all four:
+
+| # | Principle | What it means | How we apply it |
+|---|---|---|---|
+| 1 | **Declarative** | Describe the *desired state*, not the steps to reach it | The Helm chart and `values.yaml` describe what should run (image, replicas, probes, resources). No pipeline runs imperative `kubectl` or `helm upgrade` commands. |
+| 2 | **Versioned and immutable** | The desired state is stored in a way that keeps full history and can't be silently changed | Every change to dev is a commit in [sqope-ai-gitops-dev](https://github.com/gologolo24/sqope-ai-gitops-dev/commits/main). The artifacts it points to are immutable too: images are tagged with the commit SHA in immutable ECR repos, and chart versions are immutable in ECR. |
+| 3 | **Pulled automatically** | Agents in the environment *pull* the desired state; nothing *pushes* into the cluster | ArgoCD runs inside the cluster and pulls from git and ECR. CI only writes to git and has **no cluster credentials at all**. |
+| 4 | **Continuously reconciled** | Agents keep comparing actual state with desired state and correct any drift | ArgoCD auto-sync with `selfHeal: true` and `prune: true` ([applicationset.yaml#L45-L58](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L45-L58)). A manual `kubectl edit` is detected and reverted. |
+
+### Push-based vs pull-based CD
+
+The traditional alternative is a **push-based** pipeline, where CI itself runs `kubectl apply` or
+`helm upgrade` against the cluster at the end:
+
+```mermaid
+flowchart LR
+    subgraph PUSH["❌ Push-based: CI deploys"]
+        direction LR
+        ci1["CI pipeline<br/>holds cluster admin credentials"] -->|"kubectl / helm upgrade<br/>over the internet"| k1["Kubernetes<br/>API server must be reachable from CI"]
+    end
+    subgraph PULL["✅ Pull-based (GitOps): the cluster deploys itself"]
+        direction LR
+        ci2["CI pipeline<br/>no cluster credentials"] -->|git commit| git2[("GitOps repo")]
+        argo2["ArgoCD<br/>inside the cluster"] -->|pulls| git2
+        argo2 -->|applies + watches| k2["Kubernetes<br/>API server can stay private"]
+    end
+```
+
+| | Push-based (CI runs `kubectl` / `helm`) | **Pull-based GitOps (ArgoCD)**: our choice |
+|---|---|---|
+| **Cluster credentials** | Stored in CI secrets. A leaked token or a compromised pipeline means a compromised cluster. | Never leave the cluster. CI can only write to one git repo. |
+| **Network exposure** | The Kubernetes API must be reachable from CI runners | The API server can stay private. ArgoCD only makes outbound connections to git and ECR. |
+| **Drift** | Manual changes go unnoticed until the next deploy overwrites them (or doesn't) | Detected within minutes and reverted automatically (`selfHeal`) |
+| **Audit trail** | Scattered across CI logs, which expire | `git log`: who changed what, when, why, and who approved it, kept forever |
+| **Rollback** | Find and re-run an old pipeline, or run `helm rollback` by hand | `git revert`, the same skill every developer already has |
+| **Review** | The deploy happens as a side effect of a pipeline | Changes to an environment are PRs, with branch protection and required approvals for staging and prod |
+| **Disaster recovery** | Rebuilding a cluster means re-running every pipeline in the right order | New cluster + ArgoCD + one root app: the **whole environment is restored from git** |
+| **Multiple environments and clusters** | A pipeline step and credentials per cluster | Each cluster pulls its own repo or path. Adding a cluster adds no CI secrets. |
+| **Visibility** | Pipeline logs | ArgoCD UI: live resource tree, health, a diff against git, sync history |
+
+### Why ArgoCD specifically
+
+| Reason | Why it matters for Sqope AI |
+|---|---|
+| **A CNCF *graduated* project**, the same maturity level as Kubernetes and Prometheus | Proven at scale with a large community, and the de facto standard for GitOps on Kubernetes. No vendor lock-in. |
+| **A web UI with live state, health and diffs** | A team spread across Israel, Poland and Peru can all see what's running in dev, whether it's healthy and what changed, **without anyone needing `kubectl` access** |
+| **ApplicationSet** | One template generates an Application per service. We use it: [a new service = a new folder](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L13-L19). |
+| **Multi-source Applications** | The chart comes from ECR (OCI) at a pinned version, and the values come from git. We use it: [applicationset.yaml#L30-L41](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L30-L41). |
+| **Health assessment** | ArgoCD knows whether a Deployment actually *rolled out and became healthy*, not just whether the YAML was applied |
+| **Sync policies**: auto-sync, prune, self-heal, retry, sync waves and hooks | Fully automatic for dev today, and ordered steps (such as running DB migrations before the app) when they're needed |
+| **AppProjects + RBAC + SSO** | Least privilege per team and environment. Our [AppProject](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/project.yaml) limits sources, namespaces and resource kinds. With SSO, most engineers get read-only access and on-call engineers get sync rights. |
+| **Notifications** (Slack, e-mail, webhooks) | Alerts on failed syncs or degraded health. This feeds into monitoring and alerting (question 5). |
+| **History and rollback** | Every sync is recorded and linked to the git commit that caused it |
+
+**Alternatives considered:**
+
+| Option | Verdict |
+|---|---|
+| **Flux CD** | Also CNCF graduated and also a solid GitOps choice. It's CLI- and CRD-first with no built-in UI, so it's less visible for a distributed team that isn't on kubectl. |
+| **CI push** (`helm upgrade` from GitHub Actions) | Simplest to start with, but it fails the security, drift and audit points in the table above |
+| **Spinnaker** | Powerful but heavy to run. Too much overhead for a team of this size. |
+
+**In short:** GitHub Actions answers *"is this change good, and what is the artifact?"* (CI).
+ArgoCD answers *"is the cluster running exactly what git says?"* (CD). Keeping those two jobs
+separate is what makes the system secure, auditable and recoverable.
+
+---
+
+## 12. Proof it works: real runs
 
 The pipelines aren't theoretical. They have already run on this repo and done their job:
 
