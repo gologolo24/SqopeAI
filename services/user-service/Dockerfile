@@ -8,7 +8,9 @@ WORKDIR /build
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# pip is only needed to build: drop it from the venv so it never ships to runtime
+RUN pip install --no-cache-dir -r requirements.txt \
+    && pip uninstall -y pip
 
 # ---- runtime stage: only the venv + app code, no build tooling, non-root ----
 FROM python:3.14-slim@sha256:22eafb370920ad8b429e0aec3fff433e0669968519f5d60469d83729c138b28b
@@ -16,6 +18,14 @@ ARG GIT_SHA=unknown
 LABEL org.opencontainers.image.title="user-service" \
       org.opencontainers.image.source="https://github.com/gologolo24/SqopeAI" \
       org.opencontainers.image.revision="${GIT_SHA}"
+# 1. Apply Debian security fixes released after the pinned base image was published.
+# 2. Remove pip (and its vendored urllib3/msgpack/setuptools, a recurring CVE source):
+#    nothing installs packages at runtime, so a package manager is pure attack surface.
+RUN apt-get update \
+    && apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/* \
+    && python -m pip uninstall -y pip \
+    && rm -rf /usr/local/lib/python3.14/ensurepip/_bundled
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
