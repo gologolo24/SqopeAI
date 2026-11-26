@@ -13,6 +13,8 @@ ArgoCD watches.
   and how the image is deployed through CI and ArgoCD
 - [Question 4: Security](README-SECURITY.md): secrets in AWS Secrets Manager, External Secrets,
   OIDC instead of keys, and one IAM role per service
+- [Question 5: Monitoring](README-MONITORING.md): Datadog for metrics, logs and traces, SLOs,
+  and alerts routed to Slack by severity
 
 | Repository | Holds | Changed by |
 |---|---|---|
@@ -257,9 +259,10 @@ assignment.
   the VPC, EKS and RDS for every environment. The ECR + OIDC component and the ArgoCD install are
   its listed next steps.
 - **Monitoring.**
-  - Already in place: services expose RED metrics on `/metrics` and write JSON logs to stdout, and
-    the chart ships a `ServiceMonitor` (off until Prometheus Operator is installed).
-  - Next part: dashboards and alerting.
+  - Already in place: services expose RED and business metrics on `/metrics` and write JSON logs
+    to stdout.
+  - The plan: Datadog (Agent via ArgoCD, dashboards, SLOs, monitors as code) with alerts to Slack.
+    See [README-MONITORING.md](README-MONITORING.md).
 - **Approvals.** Required PR approvals are 0 because this is a single-account demo. For a team:
   1 approval + CODEOWNERS review, with `chart/` and `.github/` owned by platform.
 - **All-or-nothing deploys per merge.** If one service fails on `main`, no service from that merge
