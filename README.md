@@ -79,8 +79,7 @@ chart/generic/             ONE Helm chart used by all services (secure defaults 
   dependabot.yml                weekly updates for pip, base images and action SHAs
   CODEOWNERS                    who must review what
 ruff.toml                  one lint/format standard for all services
-ct.yaml, .yamllint         chart-testing and YAML lint config
-.pre-commit-config.yaml    the same checks locally, before the commit
+ct.yaml                    chart-testing config (ct lint in helm-chart-cicd)
 .trivyignore               accepted vulnerability risks (each needs reason + expiry date)
 ```
 
@@ -160,18 +159,15 @@ new ArgoCD Application.
 | Vulnerabilities | Trivy image gate + Security tab, `trivy config` on the rendered chart, ECR scan-on-push, Dependabot alerts |
 | Runtime hardening | Non-root UID 10001, read-only root FS, all Linux capabilities dropped, seccomp `RuntimeDefault`, no ServiceAccount token mounted, CPU/memory requests |
 | Minimal image | Multi-stage build. The runtime image gets Debian security updates at build time and has **no package manager** (pip and its vendored libraries are removed), so there's less to exploit and less for Trivy to flag. |
-| Repo hygiene | Branch protection (PR + `ci-result` + `chart-result`), CODEOWNERS, secret scanning with push protection, and pre-commit `detect-private-key` |
+| Repo hygiene | Branch protection (PR + `ci-result` + `chart-result`), CODEOWNERS, and secret scanning with push protection |
 
 ---
 
 ## Run it locally
 
-Prerequisites: Python 3.14, Docker, Helm 3, and `pre-commit` (optional but recommended).
+Prerequisites: Python 3.14, Docker and Helm 3. These are the same commands CI runs.
 
 ```bash
-# same checks as CI, on every commit
-pip install pre-commit && pre-commit install
-
 # a service: lint + test
 cd services/order-service
 python3 -m venv .venv && source .venv/bin/activate
