@@ -232,7 +232,7 @@ GitHub repository settings:
 |---|---|
 | Secret scanning + push protection | ✅ on (all three repos) |
 | Branch protection on `main` (PR + required `ci-result` and `chart-result`) | ⏭️ to enable |
-| Dependabot alerts | ⏭️ to enable (Dependabot version-update PRs already run from `dependabot.yml`) |
+| Dependabot alerts | ✅ on (all three repos), plus version-update PRs from `dependabot.yml` |
 | `dev` environment + `GITOPS_DEPLOY_KEY` | ⏭️ step 3 above |
 
 ---
