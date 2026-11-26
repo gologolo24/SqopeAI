@@ -15,6 +15,8 @@ ArgoCD watches.
   OIDC instead of keys, and one IAM role per service
 - [Question 5: Monitoring](README-MONITORING.md): Datadog for metrics, logs and traces, SLOs,
   and alerts routed to Slack by severity
+- [Question 6: Disaster recovery](README-DR.md): failed deployments, a fast rollback with
+  `git revert`, data restore, and rebuilding everything from git
 
 | Repository | Holds | Changed by |
 |---|---|---|
