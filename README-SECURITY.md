@@ -76,7 +76,7 @@ credentials, third-party API keys (email or SMS provider, Slack), signing keys.
 |---|---|---|
 | `sqope/prod/order-service/db` | `DB_USER`, `DB_PASSWORD` (the service's **own** DB user, not the master user) | A DB migration job; rotated by Secrets Manager |
 | `sqope/prod/notification-service/app` | `SENDGRID_API_KEY`, `SLACK_WEBHOOK_URL` | The platform team, out-of-band (console / CLI), **never typed into Terraform** |
-| RDS master password | Admin credentials, for break-glass and migrations only | **AWS itself**, through `manage_master_user_password = true` ([infra rds module](https://github.com/gologolo24/sqope-ai-infra/blob/main/modules/rds/main.tf#L45)). The password never exists in code, state outputs or CI. |
+| RDS master password | Admin credentials, for break-glass and migrations only | **AWS itself**, through `manage_master_user_password = true` ([infra rds module](https://github.com/gologolo24/SqopeAI-infra/blob/main/modules/rds/main.tf#L45)). The password never exists in code, state outputs or CI. |
 
 Each environment has its own account, so dev, staging and prod secrets are **physically
 separate**. A dev role can't even see that prod secrets exist.
@@ -166,7 +166,7 @@ as environment variables ([values.yaml#L30-L33](chart/generic/values.yaml#L30-L3
 [deployment.yaml#L58-L64](chart/generic/templates/deployment.yaml#L58-L64)):
 
 ```yaml
-# sqope-ai-gitops-dev/apps/order-service/values.yaml
+# SqopeAI-gitops-dev/apps/order-service/values.yaml
 envFromSecrets:
   - order-service-secrets
 ```
@@ -217,7 +217,7 @@ sequenceDiagram
 | **cosign** (image signing) | Sign images | GitHub OIDC (keyless Sigstore) | ❌ no signing key | [main.yml#L119-L124](.github/workflows/main.yml#L119-L124) |
 | **Each service's pods** | Their own AWS resources and secrets | **IRSA**: EKS OIDC token for the pod's ServiceAccount | ❌ none | chart `serviceAccount.annotations` (§5) |
 | **External Secrets** | Read Secrets Manager | IRSA, **borrowing each service's ServiceAccount** | ❌ none | §3 |
-| **TeamCity agents** (infra) | Run Terraform in env accounts | EC2 instance role → `AssumeRole` into `terraform-planner` (PRs) or `terraform-deployer` (main) | ❌ none | [infra root.hcl#L42-L48](https://github.com/gologolo24/sqope-ai-infra/blob/main/live/root.hcl#L42-L48) |
+| **TeamCity agents** (infra) | Run Terraform in env accounts | EC2 instance role → `AssumeRole` into `terraform-planner` (PRs) or `terraform-deployer` (main) | ❌ none | [infra root.hcl#L42-L48](https://github.com/gologolo24/SqopeAI-infra/blob/main/live/root.hcl#L42-L48) |
 | **EKS nodes** | Pull images from ECR | Node IAM role (managed by the EKS module) | ❌ none | infra eks module |
 | **Engineers** | Console, CLI, kubectl | SSO + MFA (§6) | ❌ none | |
 | GitHub Actions → GitOps repo | Commit image tags | Deploy key scoped to **one repo**, stored in the `dev` GitHub Environment | ⚠️ one SSH key | [main.yml#L133-L151](.github/workflows/main.yml#L133-L151) |
@@ -240,7 +240,7 @@ and the AWS SDK picks it up automatically, with **no code changes and no keys**.
 [values.yaml#L15-L18](chart/generic/values.yaml#L15-L18)):
 
 ```yaml
-# sqope-ai-gitops-dev/apps/order-service/values.yaml
+# SqopeAI-gitops-dev/apps/order-service/values.yaml
 serviceAccount:
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::111111111111:role/sqope-dev-order-service
@@ -300,7 +300,7 @@ data "aws_iam_policy_document" "order_service" {
   ([deployment.yaml#L33](chart/generic/templates/deployment.yaml#L33)). The services never call
   the Kubernetes API. IRSA mounts its own token, which is valid for AWS only.
 - **A namespace per service**, and the ArgoCD **AppProject** limits what can be deployed and where
-  ([project.yaml](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/project.yaml)).
+  ([project.yaml](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/project.yaml)).
 - **Pods run restricted:** non-root, read-only filesystem, all capabilities dropped, seccomp
   ([README-DOCKER § 7](README-DOCKER.md#7-the-image-and-kubernetes-fit-together)).
 
@@ -314,7 +314,7 @@ data "aws_iam_policy_document" "order_service" {
 | **Kubernetes** | **EKS access entries** map SSO roles to Kubernetes groups: view for everyone, edit in dev, admin only via break-glass | Same identity everywhere, nothing to distribute |
 | **Deployments** | Through **git PRs only**. ArgoCD `selfHeal` reverts manual `kubectl` changes. | Every change is reviewed and recorded |
 | **ArgoCD UI** | SSO. Read-only for most people, sync rights for on-call. | Visibility without power |
-| **Infrastructure** | Through TeamCity: plan on PR, apply after merge, prod manually ([infra repo](https://github.com/gologolo24/sqope-ai-infra#6-teamcity-how-changes-reach-aws)) | Nobody runs `terraform apply` against prod from a laptop |
+| **Infrastructure** | Through TeamCity: plan on PR, apply after merge, prod manually ([infra repo](https://github.com/gologolo24/SqopeAI-infra#6-teamcity-how-changes-reach-aws)) | Nobody runs `terraform apply` against prod from a laptop |
 | **Secrets** | Engineers **don't read production secrets**. Only the service roles can. Break-glass access is logged by CloudTrail. | Need-to-know |
 
 The team is spread across Israel, Poland and Peru, so access is **identity-based** (SSO). It
@@ -328,7 +328,7 @@ doesn't depend on office IP addresses, and works the same from any country.
 |---|---|
 | **At rest** | KMS encryption everywhere: RDS storage, RDS backups and snapshots, EBS volumes, S3 (Terraform state), Secrets Manager, Kubernetes Secrets in etcd |
 | **In transit** | TLS at the load balancer (ACM certificates). PostgreSQL connections over TLS (`rds.force_ssl`). AWS API calls over HTTPS. |
-| **Network isolation** | The database sits in subnets **with no internet route**, reachable **only from the EKS node security group** ([infra rds module](https://github.com/gologolo24/sqope-ai-infra/blob/main/modules/rds/main.tf)) |
+| **Network isolation** | The database sits in subnets **with no internet route**, reachable **only from the EKS node security group** ([infra rds module](https://github.com/gologolo24/SqopeAI-infra/blob/main/modules/rds/main.tf)) |
 | **Database access** | Each service has its **own DB user** with rights only to its own schema. The master user is for break-glass and migrations only. |
 | **Logs** | Structured JSON logs carry **IDs, not personal data**: `order_id`, `user_id`, never e-mails, card data or tokens ([example](services/order-service/app/main.py)) |
 | **Backups** | Encrypted. Retention grows with the environment (1 / 7 / 30 days). Prod has deletion protection. |
@@ -347,7 +347,7 @@ doesn't depend on office IP addresses, and works the same from any country.
 | **Actions pinned to commit SHAs** + Dependabot | A hijacked action tag injecting code into the pipeline | every `uses:` line |
 | **Trivy**: image CVEs (gate) + Kubernetes and Terraform misconfiguration | Vulnerable images and insecure manifests reaching an environment | [README-CICD § 3](README-CICD.md#3-pipeline-a-pull-request-services-pr) |
 | **Signed images** (cosign) + SBOM + provenance | Running images that weren't built by our pipeline (enforced at admission with Kyverno, next step) | [main.yml#L110-L131](.github/workflows/main.yml#L110-L131) |
-| **Terraform**: read-only role for plans, `allowed_account_ids` | A PR changing infrastructure, or applying to the wrong account | [infra root.hcl](https://github.com/gologolo24/sqope-ai-infra/blob/main/live/root.hcl) |
+| **Terraform**: read-only role for plans, `allowed_account_ids` | A PR changing infrastructure, or applying to the wrong account | [infra root.hcl](https://github.com/gologolo24/SqopeAI-infra/blob/main/live/root.hcl) |
 
 ---
 

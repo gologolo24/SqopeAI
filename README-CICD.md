@@ -14,7 +14,7 @@
 | | |
 |---|---|
 | Application code + CI pipelines | [gologolo24/SqopeAI](https://github.com/gologolo24/SqopeAI) (this repo) |
-| Desired state for CD (watched by ArgoCD) | [gologolo24/sqope-ai-gitops-dev](https://github.com/gologolo24/sqope-ai-gitops-dev) |
+| Desired state for CD (watched by ArgoCD) | [gologolo24/SqopeAI-gitops-dev](https://github.com/gologolo24/SqopeAI-gitops-dev) |
 | Live pipeline runs | [Actions tab](https://github.com/gologolo24/SqopeAI/actions) |
 
 ---
@@ -47,7 +47,7 @@ flowchart LR
     end
 
     PUB -->|docker push| ECR[("Amazon ECR<br/>images + Helm chart")]
-    PUB -->|"git commit:<br/>image.tag = commit SHA"| GITOPS[("sqope-ai-gitops-dev<br/>values only")]
+    PUB -->|"git commit:<br/>image.tag = commit SHA"| GITOPS[("SqopeAI-gitops-dev<br/>values only")]
 
     subgraph CD["CD · ArgoCD · runs inside the cluster"]
         ARGO["ArgoCD<br/>ApplicationSet"]
@@ -85,7 +85,7 @@ push-based vs pull-based deployment, and why ArgoCD.
 | **C · helm-chart-cicd** | [`.github/workflows/helm-chart-cicd.yml`](.github/workflows/helm-chart-cicd.yml) | PR and push → `main` (chart files only) | Validates the shared chart, and on main **releases a new version** to ECR | Helm chart (OCI) + git tag |
 | Shared building block | [`.github/workflows/_service-ci.yml`](.github/workflows/_service-ci.yml) | Called by A and B | The CI stages for **one** service, defined once | |
 | Shared building block | [`.github/actions/changed-services/action.yml`](.github/actions/changed-services/action.yml) | Used by A and B | Works out which services changed | |
-| **CD · ArgoCD** | [`argocd/applicationset.yaml`](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml) (GitOps repo) | A new commit in the GitOps repo | Deploys every service to dev | |
+| **CD · ArgoCD** | [`argocd/applicationset.yaml`](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml) (GitOps repo) | A new commit in the GitOps repo | Deploys every service to dev | |
 
 Pipelines **A** and **B** share their stages through a **reusable workflow**, so "how a service is
 built and tested" is written once and can't drift between PR and main.
@@ -167,7 +167,7 @@ flowchart TD
         O["AWS login<br/>via OIDC"] --> PU["push to ECR<br/>:full-commit-sha"] --> SB["SBOM<br/>(CycloneDX)"] --> SI["cosign<br/>signature"] --> PR["build<br/>provenance"]
     end
 
-    S7 --> S8["<b>Stage 8 · Deploy to dev (GitOps)</b><br/>set image.tag = commit SHA in<br/>sqope-ai-gitops-dev/apps/SERVICE/values.yaml<br/>commit + push"]
+    S7 --> S8["<b>Stage 8 · Deploy to dev (GitOps)</b><br/>set image.tag = commit SHA in<br/>SqopeAI-gitops-dev/apps/SERVICE/values.yaml<br/>commit + push"]
     S8 --> S9{"<b>Stage 9 · ci-result</b>"}
     S8 -.->|"ArgoCD sees the new commit"| CD(["<b>CD</b> · ArgoCD rolls out the new image to dev"])
 ```
@@ -262,7 +262,7 @@ repo. When they differ, it syncs the cluster to match git.
 ### What ArgoCD watches
 
 ```
-sqope-ai-gitops-dev/
+SqopeAI-gitops-dev/
 ├── apps/
 │   ├── user-service/values.yaml          ← image.tag bumped by CI on every merge
 │   ├── order-service/values.yaml
@@ -275,11 +275,11 @@ sqope-ai-gitops-dev/
 
 | Piece | What it does | Code |
 |---|---|---|
-| **ApplicationSet** | A *git directory generator* creates one ArgoCD Application per folder in `apps/`. **Adding a service = adding a folder.** | [applicationset.yaml#L13-L19](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L13-L19) |
-| **Multi-source app** | Each Application combines **(1) the `generic` chart from ECR** at a pinned version with **(2) that service's `values.yaml` from git**. | [applicationset.yaml#L30-L41](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L30-L41) |
-| **Auto-sync** | `prune` deletes what was removed from git, `selfHeal` reverts manual `kubectl` changes, and `retry` with backoff handles transient errors. | [applicationset.yaml#L45-L58](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L45-L58) |
-| **AppProject** | Least privilege: ArgoCD may deploy only from this repo and the ECR chart, only into `*-service` namespaces, and only the resource kinds the chart produces. | [project.yaml](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/project.yaml) |
-| **App-of-apps** | ArgoCD manages its own configuration from git too. Only this one file is applied by hand, once. | [root-app.yaml](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/bootstrap/root-app.yaml) |
+| **ApplicationSet** | A *git directory generator* creates one ArgoCD Application per folder in `apps/`. **Adding a service = adding a folder.** | [applicationset.yaml#L13-L19](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L13-L19) |
+| **Multi-source app** | Each Application combines **(1) the `generic` chart from ECR** at a pinned version with **(2) that service's `values.yaml` from git**. | [applicationset.yaml#L30-L41](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L30-L41) |
+| **Auto-sync** | `prune` deletes what was removed from git, `selfHeal` reverts manual `kubectl` changes, and `retry` with backoff handles transient errors. | [applicationset.yaml#L45-L58](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L45-L58) |
+| **AppProject** | Least privilege: ArgoCD may deploy only from this repo and the ECR chart, only into `*-service` namespaces, and only the resource kinds the chart produces. | [project.yaml](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/project.yaml) |
+| **App-of-apps** | ArgoCD manages its own configuration from git too. Only this one file is applied by hand, once. | [root-app.yaml](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/bootstrap/root-app.yaml) |
 
 ### How a deploy reaches the pods (zero downtime)
 
@@ -288,7 +288,7 @@ sequenceDiagram
     autonumber
     participant CI as services-main (CI)
     participant ECR as Amazon ECR
-    participant Git as sqope-ai-gitops-dev
+    participant Git as SqopeAI-gitops-dev
     participant Argo as ArgoCD
     participant K8s as Kubernetes (dev)
     CI->>ECR: push order-service:3f9c2ab (signed)
@@ -395,9 +395,9 @@ GitOps is defined by four principles, published by
 | # | Principle | What it means | How we apply it |
 |---|---|---|---|
 | 1 | **Declarative** | Describe the *desired state*, not the steps to reach it | The Helm chart and `values.yaml` describe what should run (image, replicas, probes, resources). No pipeline runs imperative `kubectl` or `helm upgrade` commands. |
-| 2 | **Versioned and immutable** | The desired state is stored in a way that keeps full history and can't be silently changed | Every change to dev is a commit in [sqope-ai-gitops-dev](https://github.com/gologolo24/sqope-ai-gitops-dev/commits/main). The artifacts it points to are immutable too: images are tagged with the commit SHA in immutable ECR repos, and chart versions are immutable in ECR. |
+| 2 | **Versioned and immutable** | The desired state is stored in a way that keeps full history and can't be silently changed | Every change to dev is a commit in [SqopeAI-gitops-dev](https://github.com/gologolo24/SqopeAI-gitops-dev/commits/main). The artifacts it points to are immutable too: images are tagged with the commit SHA in immutable ECR repos, and chart versions are immutable in ECR. |
 | 3 | **Pulled automatically** | Agents in the environment *pull* the desired state; nothing *pushes* into the cluster | ArgoCD runs inside the cluster and pulls from git and ECR. CI only writes to git and has **no cluster credentials at all**. |
-| 4 | **Continuously reconciled** | Agents keep comparing actual state with desired state and correct any drift | ArgoCD auto-sync with `selfHeal: true` and `prune: true` ([applicationset.yaml#L45-L58](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L45-L58)). A manual `kubectl edit` is detected and reverted. |
+| 4 | **Continuously reconciled** | Agents keep comparing actual state with desired state and correct any drift | ArgoCD auto-sync with `selfHeal: true` and `prune: true` ([applicationset.yaml#L45-L58](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L45-L58)). A manual `kubectl edit` is detected and reverted. |
 
 ### Push-based vs pull-based CD
 
@@ -436,11 +436,11 @@ flowchart LR
 |---|---|
 | **A CNCF *graduated* project**, the same maturity level as Kubernetes and Prometheus | Proven at scale with a large community, and the de facto standard for GitOps on Kubernetes. No vendor lock-in. |
 | **A web UI with live state, health and diffs** | A team spread across Israel, Poland and Peru can all see what's running in dev, whether it's healthy and what changed, **without anyone needing `kubectl` access** |
-| **ApplicationSet** | One template generates an Application per service. We use it: [a new service = a new folder](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L13-L19). |
-| **Multi-source Applications** | The chart comes from ECR (OCI) at a pinned version, and the values come from git. We use it: [applicationset.yaml#L30-L41](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L30-L41). |
+| **ApplicationSet** | One template generates an Application per service. We use it: [a new service = a new folder](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L13-L19). |
+| **Multi-source Applications** | The chart comes from ECR (OCI) at a pinned version, and the values come from git. We use it: [applicationset.yaml#L30-L41](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L30-L41). |
 | **Health assessment** | ArgoCD knows whether a Deployment actually *rolled out and became healthy*, not just whether the YAML was applied |
 | **Sync policies**: auto-sync, prune, self-heal, retry, sync waves and hooks | Fully automatic for dev today, and ordered steps (such as running DB migrations before the app) when they're needed |
-| **AppProjects + RBAC + SSO** | Least privilege per team and environment. Our [AppProject](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/project.yaml) limits sources, namespaces and resource kinds. With SSO, most engineers get read-only access and on-call engineers get sync rights. |
+| **AppProjects + RBAC + SSO** | Least privilege per team and environment. Our [AppProject](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/project.yaml) limits sources, namespaces and resource kinds. With SSO, most engineers get read-only access and on-call engineers get sync rights. |
 | **Notifications** (Slack, e-mail, webhooks) | Alerts on failed syncs or degraded health. This feeds into monitoring and alerting (question 5). |
 | **History and rollback** | Every sync is recorded and linked to the git commit that caused it |
 
