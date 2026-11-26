@@ -11,6 +11,8 @@ ArgoCD watches.
   modules, Terragrunt environments, TeamCity, and the architecture diagram
 - [Question 3: Docker](README-DOCKER.md): the layered multi-stage Dockerfile, image hardening,
   and how the image is deployed through CI and ArgoCD
+- [Question 4: Security](README-SECURITY.md): secrets in AWS Secrets Manager, External Secrets,
+  OIDC instead of keys, and one IAM role per service
 
 | Repository | Holds | Changed by |
 |---|---|---|
@@ -160,14 +162,14 @@ new ArgoCD Application.
 | Concern | How it's handled |
 |---|---|
 | Cloud credentials | **GitHub OIDC** → short-lived STS credentials. The trust policy is pinned to `repo:gologolo24/SqopeAI:ref:refs/heads/main`. There are no AWS keys anywhere. |
-| GitOps write access | A deploy key scoped to one repo, stored as a secret of the **`dev` environment**, which only `main` can use |
-| App secrets (DB passwords, API keys) | **Never in git or values files.** They live in AWS Secrets Manager → External Secrets Operator → a Kubernetes Secret → `envFromSecrets` in the chart (infra step) |
+| GitOps write access | A deploy key scoped to one repo, to be stored as a secret of the **`dev` environment**, which only `main` can use (setup steps below) |
+| App secrets (DB passwords, API keys) | **Never in git or values files.** They live in AWS Secrets Manager → External Secrets Operator → a Kubernetes Secret → `envFromSecrets` in the chart. Details: [README-SECURITY.md](README-SECURITY.md) |
 | Workflow token | Default `contents: read`. Write scopes are granted per job, only where needed. |
 | Supply chain | SHA-pinned actions, digest-pinned base images, pinned Python deps, Dependabot, immutable ECR tags, and cosign signatures with SBOM and provenance |
 | Vulnerabilities | Trivy image gate + Security tab, `trivy config` on the rendered chart, ECR scan-on-push, Dependabot alerts |
 | Runtime hardening | Non-root UID 10001, read-only root FS, all Linux capabilities dropped, seccomp `RuntimeDefault`, no ServiceAccount token mounted, CPU/memory requests |
 | Minimal image | Multi-stage build. The runtime image gets Debian security updates at build time and has **no package manager** (pip and its vendored libraries are removed), so there's less to exploit and less for Trivy to flag. |
-| Repo hygiene | Branch protection (PR + `ci-result` + `chart-result`), CODEOWNERS, and secret scanning with push protection |
+| Repo hygiene | Secret scanning with push protection (on), CODEOWNERS, and branch protection requiring `ci-result` + `chart-result` (to enable, see below) |
 
 ---
 
@@ -217,15 +219,21 @@ bump are skipped (with a notice) because no AWS account is connected yet. To tur
 2. Set the repository variables:
    ```bash
    gh variable set AWS_ROLE_ARN --body "arn:aws:iam::<account>:role/<ci-role>"
-   gh variable set AWS_REGION   --body "eu-central-1"   # already set
+   gh variable set AWS_REGION   --body "eu-central-1"
    ```
-3. In sqope-ai-gitops-dev, replace the placeholder account `123456789012` with the real one.
+3. Create the GitOps deploy key: add a write-enabled deploy key to `sqope-ai-gitops-dev`, and
+   store its private half as the `GITOPS_DEPLOY_KEY` secret of a GitHub Environment `dev` on this
+   repo, with deployments allowed from `main` only.
+4. In sqope-ai-gitops-dev, replace the placeholder account `123456789012` with the real one.
 
-Already configured on GitHub:
-- the `dev` environment (deployments from `main` only) holding `GITOPS_DEPLOY_KEY`
-- branch protection on `main`
-- secret scanning with push protection
-- Dependabot alerts
+GitHub repository settings:
+
+| Setting | Status |
+|---|---|
+| Secret scanning + push protection | ✅ on (all three repos) |
+| Branch protection on `main` (PR + required `ci-result` and `chart-result`) | ⏭️ to enable |
+| Dependabot alerts | ✅ on (all three repos), plus version-update PRs from `dependabot.yml` |
+| `dev` environment + `GITOPS_DEPLOY_KEY` | ⏭️ step 3 above |
 
 ---
 
