@@ -4,6 +4,9 @@ Sqope AI DevOps assignment. This repository holds the **application code**, the 
 pipelines** and the **shared Helm chart**. Deployment state lives in a separate GitOps repo that
 ArgoCD watches.
 
+**Assignment answers:** [Question 1: CI/CD](README-CICD.md), covering every pipeline, its stages,
+diagrams, and how ArgoCD handles the CD.
+
 | Repository | Holds | Changed by |
 |---|---|---|
 | **SqopeAI** (this repo) | 3 microservices, GitHub Actions pipelines, the `generic` Helm chart | Developers (PRs) |
