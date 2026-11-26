@@ -9,6 +9,8 @@ ArgoCD watches.
   handles the CD
 - [Question 2: Infrastructure as Code](https://github.com/gologolo24/sqope-ai-infra): Terraform
   modules, Terragrunt environments, TeamCity, and the architecture diagram
+- [Question 3: Docker](README-DOCKER.md): the layered multi-stage Dockerfile, image hardening,
+  and how the image is deployed through CI and ArgoCD
 
 | Repository | Holds | Changed by |
 |---|---|---|
