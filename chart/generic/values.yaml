@@ -1,5 +1,5 @@
 # Defaults shared by every service. Per-service, per-environment overrides live in the GitOps
-# repo (sqope-ai-gitops-dev/apps/<service>/values.yaml). Validated by values.schema.json.
+# repo (SqopeAI-gitops-dev/apps/<service>/values.yaml). Validated by values.schema.json.
 
 nameOverride: ""
 

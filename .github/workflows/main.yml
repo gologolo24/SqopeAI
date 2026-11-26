@@ -54,7 +54,7 @@ jobs:
       - run: >
           echo "::notice title=Publish skipped::Repository variable AWS_ROLE_ARN is not set, so images
           were built, tested and scanned but not pushed to ECR, and the GitOps repo was not updated.
-          Set AWS_ROLE_ARN and AWS_REGION (outputs of the sqope-ai-infra repo) to enable it."
+          Set AWS_ROLE_ARN and AWS_REGION (outputs of the SqopeAI-infra repo) to enable it."
 
   publish:
     name: Publish ${{ matrix.service }}
@@ -137,7 +137,7 @@ jobs:
     timeout-minutes: 10
     environment:
       name: dev
-      url: https://github.com/gologolo24/sqope-ai-gitops-dev/commits/main
+      url: https://github.com/gologolo24/SqopeAI-gitops-dev/commits/main
     concurrency:
       # one writer at a time to the GitOps repo; queue, never cancel
       group: gitops-dev
@@ -146,7 +146,7 @@ jobs:
       - name: Checkout GitOps repo
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          repository: gologolo24/sqope-ai-gitops-dev
+          repository: gologolo24/SqopeAI-gitops-dev
           ref: main
           ssh-key: ${{ secrets.GITOPS_DEPLOY_KEY }}
 

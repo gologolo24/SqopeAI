@@ -120,7 +120,7 @@ shows the error rate split by version. **Deciding to roll back takes about a min
 ```mermaid
 flowchart TD
     A["🚨 Alert in Slack<br/>e.g. 5xx 7% on order-service"] --> B{"Did it start with<br/>the latest deploy?<br/>(version tag in Datadog)"}
-    B -->|yes| C["⏪ ROLL BACK FIRST<br/>git revert the deploy commit<br/>in sqope-ai-gitops-dev"]
+    B -->|yes| C["⏪ ROLL BACK FIRST<br/>git revert the deploy commit<br/>in SqopeAI-gitops-dev"]
     B -->|no| D["🔎 Incident runbook<br/>infra? dependency? data?<br/>(see § 5)"]
     C --> E["⚡ argocd app sync<br/>(or wait ≤ 3 min)"]
     E --> F{"Error rate back<br/>to normal?"}
@@ -135,12 +135,12 @@ flowchart TD
 
 ### Step 1: revert the deploy commit in the GitOps repo (about 1 minute)
 
-Every deployment is **one commit** in [sqope-ai-gitops-dev](https://github.com/gologolo24/sqope-ai-gitops-dev/commits/main),
+Every deployment is **one commit** in [SqopeAI-gitops-dev](https://github.com/gologolo24/SqopeAI-gitops-dev/commits/main),
 created by CI with a predictable message
 ([main.yml#L173](.github/workflows/main.yml#L173)), so it's easy to find:
 
 ```bash
-cd sqope-ai-gitops-dev && git pull
+cd SqopeAI-gitops-dev && git pull
 
 git log --oneline -5 -- apps/order-service/values.yaml
 #   a1b2c3d deploy(order-service): 3f9c2ab   ← the bad release
@@ -212,7 +212,7 @@ Then fix the actual bug properly in a new PR, with a test that reproduces it.
 
 | Method | Why not (as the default) |
 |---|---|
-| `kubectl rollout undo` | ArgoCD **`selfHeal`** puts the cluster back to what git says within minutes, so the bad version would return ([applicationset.yaml#L46-L48](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/argocd/applicationset.yaml#L46-L48)). Git must change, not the cluster. |
+| `kubectl rollout undo` | ArgoCD **`selfHeal`** puts the cluster back to what git says within minutes, so the bad version would return ([applicationset.yaml#L46-L48](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/argocd/applicationset.yaml#L46-L48)). Git must change, not the cluster. |
 | `argocd app rollback` | ArgoCD refuses to roll back apps with auto-sync enabled. You'd have to disable auto-sync first, and git would no longer match the cluster. It's only a break-glass option if git itself is unavailable. |
 | Rebuilding the old code in CI | Takes CI minutes, and produces a *new* artifact. Reverting to the **already tested, already scanned image** is faster and safer. |
 
@@ -235,9 +235,9 @@ That way **a code rollback never needs a data rollback.**
 
 | Protection | Setting (prod) | Covers | Where |
 |---|---|---|---|
-| **Multi-AZ** standby (synchronous) | `multi_az = true` | Instance or AZ failure: **automatic failover**, same endpoint, no data loss | [prod env.hcl#L26](https://github.com/gologolo24/sqope-ai-infra/blob/main/live/prod/env.hcl#L26) |
-| **Automated backups + point-in-time restore** | `backup_retention_days = 30` | Human error, bad migration, corruption: restore to **any second** in the last 30 days | [prod env.hcl#L27](https://github.com/gologolo24/sqope-ai-infra/blob/main/live/prod/env.hcl#L27) |
-| **Deletion protection + final snapshot** | `deletion_protection = true` | Accidental `terraform destroy` or deletion from the console | [rds main.tf#L51-L54](https://github.com/gologolo24/sqope-ai-infra/blob/main/modules/rds/main.tf#L51-L54) |
+| **Multi-AZ** standby (synchronous) | `multi_az = true` | Instance or AZ failure: **automatic failover**, same endpoint, no data loss | [prod env.hcl#L26](https://github.com/gologolo24/SqopeAI-infra/blob/main/live/prod/env.hcl#L26) |
+| **Automated backups + point-in-time restore** | `backup_retention_days = 30` | Human error, bad migration, corruption: restore to **any second** in the last 30 days | [prod env.hcl#L27](https://github.com/gologolo24/SqopeAI-infra/blob/main/live/prod/env.hcl#L27) |
+| **Deletion protection + final snapshot** | `deletion_protection = true` | Accidental `terraform destroy` or deletion from the console | [rds main.tf#L51-L54](https://github.com/gologolo24/SqopeAI-infra/blob/main/modules/rds/main.tf#L51-L54) |
 
 **Restoring after bad data** (e.g. a migration deleted rows at 14:02):
 1. Restore to a **new** instance at 14:01 (point-in-time restore). The broken DB stays as
@@ -256,8 +256,8 @@ Nothing in the cluster is hand-made. Everything is **code in git**, so a lost cl
 flowchart LR
     subgraph SRC["Sources of truth (survive the disaster)"]
         direction TB
-        IAC["sqope-ai-infra<br/>Terraform + Terragrunt"]
-        GO["sqope-ai-gitops-dev<br/>what runs, which version"]
+        IAC["SqopeAI-infra<br/>Terraform + Terragrunt"]
+        GO["SqopeAI-gitops-dev<br/>what runs, which version"]
         ECR[("ECR<br/>every image + chart")]
         BK[("RDS backups<br/>+ snapshots")]
         SM[("Secrets Manager")]
@@ -274,7 +274,7 @@ flowchart LR
 | Step | Command / action | Time |
 |---|---|---|
 | ① Infrastructure | `terragrunt run --all apply --working-dir live/prod` (VPC, EKS; RDS is untouched unless it was lost too) | ~20-30 min (mostly EKS creation) |
-| ② Bootstrap | Install ArgoCD, then `kubectl apply -f bootstrap/root-app.yaml` ([root-app](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/bootstrap/root-app.yaml)) | ~5 min |
+| ② Bootstrap | Install ArgoCD, then `kubectl apply -f bootstrap/root-app.yaml` ([root-app](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/bootstrap/root-app.yaml)) | ~5 min |
 | ③ Applications | ArgoCD deploys **every service at exactly the version in git**. External Secrets re-creates the secrets from Secrets Manager. | ~5-10 min |
 | ④ Traffic | DNS / load balancer points at the new cluster | minutes |
 
@@ -307,7 +307,7 @@ so Terraform keeps working even when the primary region is down.
 | **Corrupted state** | The S3 state bucket is **versioned**: restore the previous state file version |
 | **Guard rails** | `allowed_account_ids` (no applying to the wrong account), deletion protection on staging and prod databases |
 
-Details: [sqope-ai-infra README](https://github.com/gologolo24/sqope-ai-infra#6-teamcity-how-changes-reach-aws).
+Details: [SqopeAI-infra README](https://github.com/gologolo24/SqopeAI-infra#6-teamcity-how-changes-reach-aws).
 
 ---
 

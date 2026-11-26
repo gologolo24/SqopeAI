@@ -7,7 +7,7 @@ ArgoCD watches.
 **Assignment answers:**
 - [Question 1: CI/CD](README-CICD.md): every pipeline, its stages, diagrams, and how ArgoCD
   handles the CD
-- [Question 2: Infrastructure as Code](https://github.com/gologolo24/sqope-ai-infra): Terraform
+- [Question 2: Infrastructure as Code](https://github.com/gologolo24/SqopeAI-infra): Terraform
   modules, Terragrunt environments, TeamCity, and the architecture diagram
 - [Question 3: Docker](README-DOCKER.md): the layered multi-stage Dockerfile, image hardening,
   and how the image is deployed through CI and ArgoCD
@@ -21,8 +21,8 @@ ArgoCD watches.
 | Repository | Holds | Changed by |
 |---|---|---|
 | **SqopeAI** (this repo) | 3 microservices, GitHub Actions pipelines, the `generic` Helm chart | Developers (PRs) |
-| [**sqope-ai-gitops-dev**](https://github.com/gologolo24/sqope-ai-gitops-dev) | *Values only*: what runs in **dev** (image tag, replicas, resources), plus the ArgoCD ApplicationSet | CI (image tags) + platform (PRs) |
-| [**sqope-ai-infra**](https://github.com/gologolo24/sqope-ai-infra) | Terraform modules + Terragrunt: VPC, EKS, RDS per environment (dev / staging / prod), deployed by TeamCity | Platform team |
+| [**SqopeAI-gitops-dev**](https://github.com/gologolo24/SqopeAI-gitops-dev) | *Values only*: what runs in **dev** (image tag, replicas, resources), plus the ArgoCD ApplicationSet | CI (image tags) + platform (PRs) |
+| [**SqopeAI-infra**](https://github.com/gologolo24/SqopeAI-infra) | Terraform modules + Terragrunt: VPC, EKS, RDS per environment (dev / staging / prod), deployed by TeamCity | Platform team |
 
 **Why three repos?** Code, desired state and infrastructure change at different speeds, for
 different reasons, by different people:
@@ -47,7 +47,7 @@ change the cluster's shape, and a deploy never needs cloud admin rights.
 - **Merge to main → `services-main`**: the same checks run, then CI:
   1. pushes the image to **ECR, tagged with the full commit SHA**
   2. signs it with **cosign**, and attaches an **SBOM** and **build provenance**
-  3. commits the new tag to **sqope-ai-gitops-dev**, which **ArgoCD** then syncs to dev
+  3. commits the new tag to **SqopeAI-gitops-dev**, which **ArgoCD** then syncs to dev
 - **Chart change → `helm-chart-cicd`**: one chart, `chart/generic`, serves every service.
   - It's validated against every real dev values file.
   - It's **versioned automatically** (MAJOR.MINOR.**patch+1**), pushed to **ECR as an OCI
@@ -63,7 +63,7 @@ flowchart LR
     dev([Developer]) -->|opens PR| pr["services-pr<br/>only touched services:<br/>ruff · hadolint · pytest<br/>build · smoke · Trivy"]
     pr -->|review + merge| main["services-main<br/>same checks, then publish"]
     main -->|"push :&lt;commit-sha&gt;<br/>cosign sign · SBOM · provenance"| ecr[("Amazon ECR<br/>immutable tags")]
-    main -->|"commit image.tag=&lt;sha&gt;"| gitops[("sqope-ai-gitops-dev<br/>values only")]
+    main -->|"commit image.tag=&lt;sha&gt;"| gitops[("SqopeAI-gitops-dev<br/>values only")]
     gitops -->|watched by| argo["ArgoCD<br/>ApplicationSet"]
     ecr -->|"image + chart (OCI)"| argo
     argo -->|sync, self-heal| k8s["Kubernetes · dev<br/>one namespace per service"]
@@ -126,7 +126,7 @@ new ArgoCD Application.
 | 4 | **Smoke test** the image (read-only FS, non-root) | pytest tests the *code*. This tests the *artifact* (missing files, wrong CMD, a dependency that only fails in the image), under the same constraints Kubernetes applies. |
 | 5 | **Trivy** image scan | The results go to the GitHub Security tab, and the build **fails on fixable HIGH/CRITICAL** CVEs. Unfixable CVEs are reported but don't block, because blocking on something nobody can fix only teaches people to ignore the gate. |
 | 6 | **Publish** (main only) | Pushes the **exact image that was scanned** (passed between jobs as an artifact, not rebuilt), then signs it and attaches the SBOM and provenance. |
-| 7 | **GitOps bump** (main only) | One commit to `sqope-ai-gitops-dev` for all services in the merge, with links back to the source commit and run. |
+| 7 | **GitOps bump** (main only) | One commit to `SqopeAI-gitops-dev` for all services in the merge, with links back to the source commit and run. |
 
 ### Least privilege per job
 
@@ -199,7 +199,7 @@ curl -X POST localhost:8080/orders -H 'content-type: application/json' \
 cd ../..
 helm lint --strict chart/generic -f chart/generic/ci/full-values.yaml
 helm template order-service chart/generic \
-  -f ../sqope-ai-gitops-dev/apps/order-service/values.yaml --namespace order-service
+  -f ../SqopeAI-gitops-dev/apps/order-service/values.yaml --namespace order-service
 ```
 
 ---
@@ -209,7 +209,7 @@ helm template order-service chart/generic \
 Today the workflows **build, test, scan and validate everything**. Pushing to ECR and the GitOps
 bump are skipped (with a notice) because no AWS account is connected yet. To turn them on:
 
-1. Add an `ecr` component to [sqope-ai-infra](https://github.com/gologolo24/sqope-ai-infra) (listed there
+1. Add an `ecr` component to [SqopeAI-infra](https://github.com/gologolo24/SqopeAI-infra) (listed there
    under next steps) and apply it. It must create:
    - ECR repositories `sqope-ai/user-service`, `sqope-ai/order-service`,
      `sqope-ai/notification-service` and `chart/generic`. Each one needs:
@@ -225,10 +225,10 @@ bump are skipped (with a notice) because no AWS account is connected yet. To tur
    gh variable set AWS_ROLE_ARN --body "arn:aws:iam::<account>:role/<ci-role>"
    gh variable set AWS_REGION   --body "eu-central-1"
    ```
-3. Create the GitOps deploy key: add a write-enabled deploy key to `sqope-ai-gitops-dev`, and
+3. Create the GitOps deploy key: add a write-enabled deploy key to `SqopeAI-gitops-dev`, and
    store its private half as the `GITOPS_DEPLOY_KEY` secret of a GitHub Environment `dev` on this
    repo, with deployments allowed from `main` only.
-4. In sqope-ai-gitops-dev, replace the placeholder account `123456789012` with the real one.
+4. In SqopeAI-gitops-dev, replace the placeholder account `123456789012` with the real one.
 
 GitHub repository settings:
 
@@ -243,7 +243,7 @@ GitHub repository settings:
 
 ## Rollback
 
-Every deploy is one commit in sqope-ai-gitops-dev, so a rollback is:
+Every deploy is one commit in SqopeAI-gitops-dev, so a rollback is:
 
 ```bash
 git revert <deploy-commit> && git push   # ArgoCD syncs the previous image SHA
@@ -257,7 +257,7 @@ assignment.
 
 ## Limitations and next steps
 
-- **Not applied to AWS yet.** [sqope-ai-infra](https://github.com/gologolo24/sqope-ai-infra) defines
+- **Not applied to AWS yet.** [SqopeAI-infra](https://github.com/gologolo24/SqopeAI-infra) defines
   the VPC, EKS and RDS for every environment. The ECR + OIDC component and the ArgoCD install are
   its listed next steps.
 - **Monitoring.**

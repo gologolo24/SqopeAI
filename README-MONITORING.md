@@ -131,7 +131,7 @@ The services were built to be observed. These parts are **already implemented**:
 
 The Agent is installed **through GitOps, like everything else**: the Datadog Operator and a
 `DatadogAgent` resource, deployed by ArgoCD (the "platform" component listed in the
-[infra repo's next steps](https://github.com/gologolo24/sqope-ai-infra#9-not-included-on-purpose-and-next-steps)).
+[infra repo's next steps](https://github.com/gologolo24/SqopeAI-infra#9-not-included-on-purpose-and-next-steps)).
 
 ```yaml
 apiVersion: datadoghq.com/v2alpha1
@@ -172,7 +172,7 @@ Each service turns on scraping with **one annotation** in its GitOps values file
 supports `podAnnotations`):
 
 ```yaml
-# sqope-ai-gitops-dev/apps/order-service/values.yaml
+# SqopeAI-gitops-dev/apps/order-service/values.yaml
 podAnnotations:
   ad.datadoghq.com/order-service.checks: |
     {"openmetrics": {"instances": [{

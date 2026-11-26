@@ -14,7 +14,7 @@
 |---|---|
 | Dockerfiles | [user-service](services/user-service/Dockerfile) · [order-service](services/order-service/Dockerfile) · [notification-service](services/notification-service/Dockerfile) (same pattern, only the name differs) |
 | How CI builds it | [README-CICD.md](README-CICD.md) (question 1) |
-| How it's deployed | [sqope-ai-gitops-dev](https://github.com/gologolo24/sqope-ai-gitops-dev) + [chart/generic](chart/generic) |
+| How it's deployed | [SqopeAI-gitops-dev](https://github.com/gologolo24/SqopeAI-gitops-dev) + [chart/generic](chart/generic) |
 
 ---
 
@@ -190,7 +190,7 @@ Deploying is **not** `docker run` on a server and **not** `kubectl apply` from C
 **GitOps**:
 
 1. CI writes the new image tag into git:
-   [`apps/order-service/values.yaml`](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/apps/order-service/values.yaml)
+   [`apps/order-service/values.yaml`](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/apps/order-service/values.yaml)
    → `image.tag: <commit-sha>`
 2. **ArgoCD**, running inside the cluster, sees the commit. It renders the shared Helm chart
    [`chart/generic`](chart/generic) with that values file and applies the result.
@@ -220,7 +220,7 @@ sequenceDiagram
 - **Drift is corrected automatically** (`selfHeal`), and **rollback is `git revert`**.
 - **The cluster pulls; CI never holds cluster credentials.**
 - **Scaling** is declared in values: fixed `replicaCount`, or an HPA, as for
-  [order-service](https://github.com/gologolo24/sqope-ai-gitops-dev/blob/main/apps/order-service/values.yaml).
+  [order-service](https://github.com/gologolo24/SqopeAI-gitops-dev/blob/main/apps/order-service/values.yaml).
 
 The full GitOps explanation is in [README-CICD.md § 6 and § 11](README-CICD.md#6-cd-with-argocd).
 
